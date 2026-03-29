@@ -281,3 +281,48 @@ body {
 .stagger-grid > *:nth-child(7) { animation-delay: 0.28s; }
 .stagger-grid > *:nth-child(8) { animation-delay: 0.32s; }
 .stagger-grid > *:nth-child(9) { animation-delay: 0.36s; }
+
+/* ── Float ───────────────────────────────────────────── */
+
+@keyframes float {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-6px);
+  }
+}
+
+.animate-float {
+  animation: float 3s ease-in-out infinite;
+}
+
+/* ── Marquee ─────────────────────────────────────────── */
+
+@keyframes marquee {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+.animate-marquee {
+  animation: marquee 25s linear infinite;
+}
+
+/* ── Blink ───────────────────────────────────────────── */
+
+@keyframes blink {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
+}
+
+.animate-blink {
+  animation: blink 1s step-end infinite;
+}
