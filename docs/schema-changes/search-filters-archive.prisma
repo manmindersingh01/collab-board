@@ -1,0 +1,13 @@
+// Schema changes needed for feat/search-filters-archive branch
+//
+// Add `isArchived` field to the Card model so cards can be soft-deleted.
+// The Board model already has `isArchived Boolean @default(false)`.
+//
+// Until this migration is applied, the branch uses raw SQL:
+//   ALTER TABLE "Card" ADD COLUMN "isArchived" BOOLEAN NOT NULL DEFAULT false;
+
+model Card {
+  // ... existing fields ...
+
+  isArchived Boolean @default(false)   // NEW — soft-delete for cards
+}
