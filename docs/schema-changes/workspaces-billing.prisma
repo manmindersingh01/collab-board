@@ -1,0 +1,53 @@
+// Schema additions for Workspaces + Billing feature (Instance 5)
+// These models need to be added to prisma/schema.prisma by the coordinator
+
+// New enum for workspace plans
+enum Plan {
+  FREE
+  PRO
+  ENTERPRISE
+}
+
+// New enum for workspace-level roles
+enum WorkspaceRole {
+  ADMIN
+  MEMBER
+  GUEST
+}
+
+model Workspace {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  logoUrl     String?
+  plan        Plan     @default(FREE)
+  stripeCustomerId     String?  @unique
+  stripeSubscriptionId String?  @unique
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  members     WorkspaceMember[]
+  boards      Board[]           // boards now belong to a workspace
+
+  @@index([slug])
+}
+
+model WorkspaceMember {
+  role        WorkspaceRole @default(MEMBER)
+  joinedAt    DateTime      @default(now())
+
+  workspaceId String
+  userId      String
+
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([workspaceId, userId])
+}
+
+// Addition to existing Board model:
+// Add field: workspaceId String?
+// Add relation: workspace Workspace? @relation(fields: [workspaceId], references: [id])
+
+// Addition to existing User model:
+// Add relation: workspaceMembers WorkspaceMember[]
