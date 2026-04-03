@@ -8,7 +8,7 @@ import BoardMembersModal from "./board-members";
 import { useBoardEvents } from "./use-board-events";
 import { useKeyboardShortcuts } from "./use-keyboard-shortcuts";
 import ShortcutsModal from "./shortcuts-modal";
-import BoardFilters from "./board-filters";
+import BoardFilters, { cardMatchesFilters, type FilterState } from "./board-filters";
 import ViewSwitcher, { type ViewMode } from "./views/view-switcher";
 import TableView from "./views/table-view";
 import CalendarView from "./views/calendar-view";
@@ -232,6 +232,7 @@ function SortableCard({
   canEdit,
   showComplete,
   completionLabel,
+  dimmed,
   onCardClick,
   onMarkDone,
 }: {
@@ -239,6 +240,7 @@ function SortableCard({
   canEdit: boolean;
   showComplete: boolean;
   completionLabel: string;
+  dimmed: boolean;
   onCardClick: (id: string) => void;
   onMarkDone: (id: string) => void;
 }) {
@@ -254,7 +256,7 @@ function SortableCard({
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
-    opacity: isDragging ? 0.3 : 1,
+    opacity: isDragging ? 0.3 : dimmed ? 0.3 : 1,
   };
 
   return (
@@ -267,7 +269,7 @@ function SortableCard({
       onClick={() => {
         if (!isDragging) onCardClick(card.id);
       }}
-      className={`neo-card-sm p-3 relative group ${canEdit ? "cursor-grab active:cursor-grabbing" : "cursor-pointer"}`}
+      className={`neo-card-sm p-3 relative group ${canEdit ? "cursor-grab active:cursor-grabbing" : "cursor-pointer"} ${dimmed ? "pointer-events-auto" : ""}`}
     >
       <CardItemContent card={card} />
       {showComplete && (
@@ -405,6 +407,8 @@ function ListColumn({
   isDoneList,
   currentUserId,
   allLists,
+  filterState,
+  hasActiveFilters,
   onCardAdded,
   onCardClick,
   onMarkDone,
@@ -415,6 +419,8 @@ function ListColumn({
   isDoneList: boolean;
   currentUserId: string;
   allLists: ListData[];
+  filterState: FilterState;
+  hasActiveFilters: boolean;
   onCardAdded: (listId: string, card: CardData) => void;
   onCardClick: (id: string) => void;
   onMarkDone: (id: string) => void;
@@ -461,6 +467,7 @@ function ListColumn({
                   canEdit={canEdit}
                   showComplete={!isDoneList && (canEdit || card.assignee?.id === currentUserId)}
                   completionLabel={targetName ? `Complete → ${targetName}` : "Mark as done"}
+                  dimmed={hasActiveFilters && !cardMatchesFilters(card, filterState)}
                   onCardClick={onCardClick}
                   onMarkDone={onMarkDone}
                 />
@@ -636,6 +643,12 @@ export default function BoardView({
   const [boardMembers, setBoardMembers] = useState<MemberData[]>(board.members);
 
   const [showFilters, setShowFilters] = useState(false);
+  const [filterState, setFilterState] = useState<FilterState>({
+    assigneeIds: [],
+    priorities: [],
+    labels: [],
+    dueDateFilter: null,
+  });
   const [showShortcuts, setShowShortcuts] = useState(false);
   const activeView = (searchParams.get("view") as ViewMode) || "board";
 
@@ -1057,7 +1070,7 @@ export default function BoardView({
         <BoardFilters
           cards={lists.flatMap((l) => l.card)}
           members={boardMembers}
-          onFilterChange={() => {}}
+          onFilterChange={setFilterState}
         />
       )}
 
@@ -1099,6 +1112,8 @@ export default function BoardView({
                   isDoneList={list.id === doneListId}
                   currentUserId={currentUserId}
                   allLists={lists}
+                  filterState={filterState}
+                  hasActiveFilters={showFilters && (filterState.assigneeIds.length > 0 || filterState.priorities.length > 0 || filterState.labels.length > 0 || filterState.dueDateFilter !== null)}
                   onCardAdded={handleCardAdded}
                   onCardClick={(id) => setSelectedCardId(id)}
                   onMarkDone={handleMarkDone}

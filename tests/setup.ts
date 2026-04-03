@@ -12,6 +12,7 @@ vi.mock("@/lib/prisma", () => {
     findMany: vi.fn(),
     create: vi.fn(),
     createMany: vi.fn(),
+    upsert: vi.fn(),
     update: vi.fn(),
     updateMany: vi.fn(),
     delete: vi.fn(),
@@ -37,6 +38,11 @@ vi.mock("@/lib/prisma", () => {
       activityLog: createMockModel(),
       workspace: createMockModel(),
       workspaceMember: createMockModel(),
+      automation: createMockModel(),
+      integration: createMockModel(),
+      apiKey: createMockModel(),
+      webhookEndpoint: createMockModel(),
+      timeEntry: createMockModel(),
       $transaction: vi.fn((fn: Function) => fn({
         card: createMockModel(),
         list: createMockModel(),
@@ -50,6 +56,19 @@ vi.mock("@/lib/prisma", () => {
     },
   };
 });
+
+// ── Mock Redis ──────────────────────────────────────────
+
+vi.mock("@/lib/redis", () => ({
+  default: {
+    incr: vi.fn(),
+    expire: vi.fn(),
+    ttl: vi.fn(),
+    get: vi.fn(),
+    set: vi.fn(),
+    del: vi.fn(),
+  },
+}));
 
 // ── Mock Clerk auth ──────────────────────────────────────
 
