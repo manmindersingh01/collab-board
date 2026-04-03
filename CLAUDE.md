@@ -26,9 +26,15 @@ pnpm dev                      # Start dev server at localhost:3000
 - **Cache:** Redis via `ioredis` (client in `lib/redis.ts`)
 - **Package manager:** pnpm
 
-## Critical: Card Mutations Use Raw SQL
+## Database Rules
 
-The Card model has `embeddings Unsupported("vector(1536)")?` which blocks Prisma's `create` and `update` at runtime. **All Card writes must use `$executeRaw` or `$executeRawUnsafe`**. Card reads (findUnique, findMany, aggregate) work normally via Prisma.
+1. **Always use Prisma ORM.** All models, tables, and schemas MUST be defined in `prisma/schema.prisma`. Never create tables via raw SQL scripts. When you need a new table, add the model to the schema and run `pnpm prisma migrate dev`.
+
+2. **Never write raw SQL** except for the ONE exception below. Use `prisma.model.findMany()`, `prisma.model.create()`, `prisma.model.update()`, etc. for all database operations.
+
+3. **Exception — Card model writes only.** The Card model has `embeddings Unsupported("vector(1536)")?` which blocks Prisma's `create` and `update` at runtime. Card writes (INSERT, UPDATE) must use `$executeRaw` / `$executeRawUnsafe`. Card reads (findUnique, findMany, aggregate) work normally via Prisma. This exception applies ONLY to the Card model — all other models must use Prisma.
+
+4. **After schema changes**, always run `pnpm prisma generate` to regenerate the client before using new models in code.
 
 ## Project Structure
 

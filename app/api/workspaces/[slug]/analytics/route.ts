@@ -14,23 +14,33 @@ export async function GET(
 
   const { slug } = await params;
 
-  // Verify membership
-  const workspace = await prisma.$queryRawUnsafe<
-    { id: string; role: string }[]
-  >(
-    `SELECT w."id", wm."role"
-     FROM "Workspace" w
-     JOIN "WorkspaceMember" wm ON wm."workspaceId" = w."id"
-     WHERE w."slug" = $1 AND wm."userId" = $2`,
-    slug,
-    user.id
-  );
+  // Verify membership using Prisma
+  const workspace = await prisma.workspace.findUnique({
+    where: { slug },
+    select: { id: true },
+  });
 
-  if (!workspace.length) {
+  if (!workspace) {
     return NextResponse.json({ error: "not found" }, { status: 404 });
   }
 
-  const workspaceId = workspace[0].id;
+  const membership = await prisma.workspaceMember.findUnique({
+    where: {
+      workspaceId_userId: {
+        workspaceId: workspace.id,
+        userId: user.id,
+      },
+    },
+    select: { role: true },
+  });
+
+  if (!membership) {
+    return NextResponse.json({ error: "not found" }, { status: 404 });
+  }
+
+  const workspaceId = workspace.id;
+
+  // Complex aggregations kept as raw SQL since Prisma can't do these efficiently
 
   // Summary stats
   const summary = await prisma.$queryRawUnsafe<

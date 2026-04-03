@@ -9,30 +9,34 @@ export async function GET() {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
-  const workspaces = await prisma.$queryRawUnsafe<
-    {
-      id: string;
-      name: string;
-      slug: string;
-      logoUrl: string | null;
-      plan: string;
-      role: string;
-      memberCount: number;
-      boardCount: number;
-      createdAt: Date;
-    }[]
-  >(
-    `SELECT w."id", w."name", w."slug", w."logoUrl", w."plan",
-            wm."role",
-            (SELECT COUNT(*)::int FROM "WorkspaceMember" WHERE "workspaceId" = w."id") as "memberCount",
-            (SELECT COUNT(*)::int FROM "Board" WHERE "workspaceId" = w."id" AND "isArchived" = false) as "boardCount",
-            w."createdAt"
-     FROM "Workspace" w
-     JOIN "WorkspaceMember" wm ON wm."workspaceId" = w."id"
-     WHERE wm."userId" = $1
-     ORDER BY w."createdAt" DESC`,
-    user.id
-  );
+  const memberships = await prisma.workspaceMember.findMany({
+    where: { userId: user.id },
+    include: {
+      workspace: {
+        include: {
+          _count: {
+            select: {
+              members: true,
+              boards: { where: { isArchived: false } },
+            },
+          },
+        },
+      },
+    },
+    orderBy: { workspace: { createdAt: "desc" } },
+  });
+
+  const workspaces = memberships.map((m) => ({
+    id: m.workspace.id,
+    name: m.workspace.name,
+    slug: m.workspace.slug,
+    logoUrl: m.workspace.logoUrl,
+    plan: m.workspace.plan,
+    role: m.role,
+    memberCount: m.workspace._count.members,
+    boardCount: m.workspace._count.boards,
+    createdAt: m.workspace.createdAt,
+  }));
 
   return NextResponse.json(workspaces);
 }
@@ -58,38 +62,41 @@ export async function POST(req: Request) {
     .replace(/^-|-$/g, "");
 
   // Ensure slug uniqueness by appending random suffix if needed
-  const existing = await prisma.$queryRawUnsafe<{ id: string }[]>(
-    `SELECT "id" FROM "Workspace" WHERE "slug" = $1`,
-    baseSlug
-  );
+  const existing = await prisma.workspace.findUnique({
+    where: { slug: baseSlug },
+    select: { id: true },
+  });
 
-  const slug = existing.length > 0
+  const slug = existing
     ? `${baseSlug}-${Math.random().toString(36).slice(2, 7)}`
     : baseSlug;
 
   // Create workspace + add creator as ADMIN in a transaction
-  const workspaceId = crypto.randomUUID();
-  await prisma.$executeRawUnsafe(
-    `INSERT INTO "Workspace" ("id", "name", "slug", "plan", "createdAt", "updatedAt")
-     VALUES ($1, $2, $3, 'FREE', NOW(), NOW())`,
-    workspaceId,
-    name.trim(),
-    slug
-  );
+  const workspace = await prisma.$transaction(async (tx) => {
+    const ws = await tx.workspace.create({
+      data: {
+        name: name.trim(),
+        slug,
+      },
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        plan: true,
+        createdAt: true,
+      },
+    });
 
-  await prisma.$executeRawUnsafe(
-    `INSERT INTO "WorkspaceMember" ("workspaceId", "userId", "role", "joinedAt")
-     VALUES ($1, $2, 'ADMIN', NOW())`,
-    workspaceId,
-    user.id
-  );
+    await tx.workspaceMember.create({
+      data: {
+        workspaceId: ws.id,
+        userId: user.id,
+        role: "ADMIN",
+      },
+    });
 
-  const workspace = await prisma.$queryRawUnsafe<
-    { id: string; name: string; slug: string; plan: string; createdAt: Date }[]
-  >(
-    `SELECT "id", "name", "slug", "plan", "createdAt" FROM "Workspace" WHERE "id" = $1`,
-    workspaceId
-  );
+    return ws;
+  });
 
-  return NextResponse.json(workspace[0], { status: 201 });
+  return NextResponse.json(workspace, { status: 201 });
 }

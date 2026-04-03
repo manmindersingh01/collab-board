@@ -32,20 +32,17 @@ export async function DELETE(
   }
 
   // Verify template belongs to board
-  const existing = await prisma.$queryRawUnsafe<{ id: string }[]>(
-    `SELECT "id" FROM "CardTemplate" WHERE "id" = $1 AND "boardId" = $2`,
-    templateId,
-    boardId,
-  );
+  const existing = await prisma.cardTemplate.findFirst({
+    where: { id: templateId, boardId },
+  });
 
-  if (existing.length === 0) {
+  if (!existing) {
     return NextResponse.json({ error: "template not found" }, { status: 404 });
   }
 
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM "CardTemplate" WHERE "id" = $1`,
-    templateId,
-  );
+  await prisma.cardTemplate.delete({
+    where: { id: templateId },
+  });
 
   return NextResponse.json({ success: true });
 }

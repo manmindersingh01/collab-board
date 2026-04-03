@@ -18,67 +18,76 @@ export async function GET(req: Request) {
   const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
 
   // ── Cards due within the next 24 hours (approaching) ──
-  const approaching = await prisma.$queryRawUnsafe<
-    { id: string; title: string; assigneeId: string; boardId: string }[]
-  >(
-    `SELECT c."id", c."title", c."assigneeId", l."boardId"
-     FROM "Card" c
-     JOIN "List" l ON c."listId" = l.id
-     WHERE c."dueDate" IS NOT NULL
-       AND c."dueDate" > $1
-       AND c."dueDate" <= $2
-       AND c."assigneeId" IS NOT NULL
-       AND c."completionListId" IS NULL
-       AND NOT EXISTS (
-         SELECT 1 FROM "Notification" n
-         WHERE n."type" = 'due.approaching'
-           AND n."userId" = c."assigneeId"
-           AND n."link" LIKE '%card=' || c."id"
-       )`,
-    now,
-    tomorrow,
+  const approachingCards = await prisma.card.findMany({
+    where: {
+      dueDate: { gt: now, lte: tomorrow },
+      assigneeId: { not: null },
+      completionListId: null,
+      NOT: {
+        assignee: {
+          notifications: {
+            some: {
+              type: "due.approaching",
+            },
+          },
+        },
+      },
+    },
+    select: {
+      id: true,
+      title: true,
+      assigneeId: true,
+      list: { select: { boardId: true } },
+    },
+  });
+
+  // Filter out cards that already have a matching notification for this specific card
+  const approachingFiltered = await filterAlreadyNotified(
+    approachingCards,
+    "due.approaching",
   );
 
   // ── Cards that are overdue ──
-  const overdue = await prisma.$queryRawUnsafe<
-    { id: string; title: string; assigneeId: string; boardId: string }[]
-  >(
-    `SELECT c."id", c."title", c."assigneeId", l."boardId"
-     FROM "Card" c
-     JOIN "List" l ON c."listId" = l.id
-     WHERE c."dueDate" IS NOT NULL
-       AND c."dueDate" < $1
-       AND c."assigneeId" IS NOT NULL
-       AND c."completionListId" IS NULL
-       AND NOT EXISTS (
-         SELECT 1 FROM "Notification" n
-         WHERE n."type" = 'due.overdue'
-           AND n."userId" = c."assigneeId"
-           AND n."link" LIKE '%card=' || c."id"
-       )`,
-    now,
+  const overdueCards = await prisma.card.findMany({
+    where: {
+      dueDate: { lt: now },
+      assigneeId: { not: null },
+      completionListId: null,
+    },
+    select: {
+      id: true,
+      title: true,
+      assigneeId: true,
+      list: { select: { boardId: true } },
+    },
+  });
+
+  // Filter out cards that already have a matching notification for this specific card
+  const overdueFiltered = await filterAlreadyNotified(
+    overdueCards,
+    "due.overdue",
   );
 
   // Create notifications
   const results = { approaching: 0, overdue: 0 };
 
   await Promise.all(
-    approaching.map(async (card) => {
+    approachingFiltered.map(async (card) => {
       await notifyDueApproaching(
-        card.assigneeId,
+        card.assigneeId!,
         { id: card.id, title: card.title },
-        card.boardId,
+        card.list.boardId,
       );
       results.approaching++;
     }),
   );
 
   await Promise.all(
-    overdue.map(async (card) => {
+    overdueFiltered.map(async (card) => {
       await notifyDueOverdue(
-        card.assigneeId,
+        card.assigneeId!,
         { id: card.id, title: card.title },
-        card.boardId,
+        card.list.boardId,
       );
       results.overdue++;
     }),
@@ -88,4 +97,35 @@ export async function GET(req: Request) {
     success: true,
     notified: results,
   });
+}
+
+// ── Helper: filter out cards that already have a notification ──
+// The original SQL used NOT EXISTS with a LIKE match on the notification link.
+// We replicate that by checking for existing notifications whose link contains the card id.
+
+async function filterAlreadyNotified(
+  cards: {
+    id: string;
+    title: string;
+    assigneeId: string | null;
+    list: { boardId: string };
+  }[],
+  notificationType: string,
+) {
+  if (cards.length === 0) return cards;
+
+  const filtered = await Promise.all(
+    cards.map(async (card) => {
+      const existing = await prisma.notification.findFirst({
+        where: {
+          type: notificationType,
+          userId: card.assigneeId!,
+          link: { contains: `card=${card.id}` },
+        },
+      });
+      return existing ? null : card;
+    }),
+  );
+
+  return filtered.filter(Boolean) as typeof cards;
 }

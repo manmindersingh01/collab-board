@@ -2,8 +2,6 @@ import prisma from "@/lib/prisma";
 import { getDbUser } from "@/lib/user";
 import { NextResponse } from "next/server";
 
-// ── PATCH /api/notifications/read — mark notifications as read ──
-
 export async function PATCH(req: Request) {
   const user = await getDbUser();
   if (!user) {
@@ -13,11 +11,10 @@ export async function PATCH(req: Request) {
   const body = await req.json();
 
   if (body.all === true) {
-    // Mark all notifications as read for this user
-    await prisma.$executeRawUnsafe(
-      `UPDATE "Notification" SET "isRead" = true WHERE "userId" = $1 AND "isRead" = false`,
-      user.id,
-    );
+    await prisma.notification.updateMany({
+      where: { userId: user.id, isRead: false },
+      data: { isRead: true },
+    });
     return NextResponse.json({ success: true });
   }
 
@@ -28,16 +25,10 @@ export async function PATCH(req: Request) {
     );
   }
 
-  // Mark specific notifications as read (only if owned by this user)
-  const placeholders = body.ids
-    .map((_: string, i: number) => `$${i + 2}`)
-    .join(", ");
-
-  await prisma.$executeRawUnsafe(
-    `UPDATE "Notification" SET "isRead" = true WHERE "userId" = $1 AND "id" IN (${placeholders})`,
-    user.id,
-    ...body.ids,
-  );
+  await prisma.notification.updateMany({
+    where: { userId: user.id, id: { in: body.ids } },
+    data: { isRead: true },
+  });
 
   return NextResponse.json({ success: true });
 }

@@ -14,59 +14,67 @@ export async function GET(
 
   const { slug } = await params;
 
-  const workspace = await prisma.$queryRawUnsafe<
-    {
-      id: string;
-      name: string;
-      slug: string;
-      logoUrl: string | null;
-      plan: string;
-      stripeCustomerId: string | null;
-      stripeSubscriptionId: string | null;
-      createdAt: Date;
-      memberCount: number;
-      boardCount: number;
-      role: string;
-    }[]
-  >(
-    `SELECT w."id", w."name", w."slug", w."logoUrl", w."plan",
-            w."stripeCustomerId", w."stripeSubscriptionId",
-            w."createdAt",
-            (SELECT COUNT(*)::int FROM "WorkspaceMember" WHERE "workspaceId" = w."id") as "memberCount",
-            (SELECT COUNT(*)::int FROM "Board" WHERE "workspaceId" = w."id" AND "isArchived" = false) as "boardCount",
-            wm."role"
-     FROM "Workspace" w
-     JOIN "WorkspaceMember" wm ON wm."workspaceId" = w."id" AND wm."userId" = $2
-     WHERE w."slug" = $1`,
-    slug,
-    user.id
-  );
+  const workspace = await prisma.workspace.findUnique({
+    where: { slug },
+    include: {
+      _count: {
+        select: {
+          members: true,
+          boards: { where: { isArchived: false } },
+        },
+      },
+      members: {
+        include: {
+          user: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              avatarUrl: true,
+            },
+          },
+        },
+        orderBy: { joinedAt: "asc" },
+      },
+    },
+  });
 
-  if (!workspace.length) {
+  if (!workspace) {
     return NextResponse.json({ error: "not found" }, { status: 404 });
   }
 
-  // Get members list
-  const members = await prisma.$queryRawUnsafe<
-    {
-      userId: string;
-      role: string;
-      joinedAt: Date;
-      name: string;
-      email: string;
-      avatarUrl: string | null;
-    }[]
-  >(
-    `SELECT wm."userId", wm."role", wm."joinedAt",
-            u."name", u."email", u."avatarUrl"
-     FROM "WorkspaceMember" wm
-     JOIN "User" u ON u."id" = wm."userId"
-     WHERE wm."workspaceId" = $1
-     ORDER BY wm."joinedAt" ASC`,
-    workspace[0].id
+  // Check that the current user is a member
+  const currentMember = workspace.members.find(
+    (m) => m.userId === user.id
   );
 
-  return NextResponse.json({ ...workspace[0], members });
+  if (!currentMember) {
+    return NextResponse.json({ error: "not found" }, { status: 404 });
+  }
+
+  const members = workspace.members.map((m) => ({
+    userId: m.userId,
+    role: m.role,
+    joinedAt: m.joinedAt,
+    name: m.user.name,
+    email: m.user.email,
+    avatarUrl: m.user.avatarUrl,
+  }));
+
+  return NextResponse.json({
+    id: workspace.id,
+    name: workspace.name,
+    slug: workspace.slug,
+    logoUrl: workspace.logoUrl,
+    plan: workspace.plan,
+    stripeCustomerId: workspace.stripeCustomerId,
+    stripeSubscriptionId: workspace.stripeSubscriptionId,
+    createdAt: workspace.createdAt,
+    memberCount: workspace._count.members,
+    boardCount: workspace._count.boards,
+    role: currentMember.role,
+    members,
+  });
 }
 
 // PATCH /api/workspaces/[slug] — Update workspace (admin only)
@@ -81,49 +89,49 @@ export async function PATCH(
 
   const { slug } = await params;
 
-  // Check user is ADMIN
-  const membership = await prisma.$queryRawUnsafe<
-    { role: string; workspaceId: string }[]
-  >(
-    `SELECT wm."role", wm."workspaceId"
-     FROM "WorkspaceMember" wm
-     JOIN "Workspace" w ON w."id" = wm."workspaceId"
-     WHERE w."slug" = $1 AND wm."userId" = $2`,
-    slug,
-    user.id
-  );
+  // Find workspace and check user is ADMIN
+  const workspace = await prisma.workspace.findUnique({
+    where: { slug },
+    select: { id: true },
+  });
 
-  if (!membership.length || membership[0].role !== "ADMIN") {
+  if (!workspace) {
+    return NextResponse.json({ error: "not found" }, { status: 404 });
+  }
+
+  const membership = await prisma.workspaceMember.findUnique({
+    where: {
+      workspaceId_userId: {
+        workspaceId: workspace.id,
+        userId: user.id,
+      },
+    },
+    select: { role: true },
+  });
+
+  if (!membership || membership.role !== "ADMIN") {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
 
   const body = await request.json();
   const { name, logoUrl } = body;
 
-  const updates: string[] = [];
-  const values: (string | null)[] = [];
-  let paramIdx = 1;
-
+  const data: Record<string, string | null> = {};
   if (name !== undefined) {
-    updates.push(`"name" = $${paramIdx++}`);
-    values.push(name);
+    data.name = name;
   }
   if (logoUrl !== undefined) {
-    updates.push(`"logoUrl" = $${paramIdx++}`);
-    values.push(logoUrl);
+    data.logoUrl = logoUrl;
   }
 
-  if (updates.length === 0) {
+  if (Object.keys(data).length === 0) {
     return NextResponse.json({ error: "no fields to update" }, { status: 400 });
   }
 
-  updates.push(`"updatedAt" = NOW()`);
-
-  await prisma.$executeRawUnsafe(
-    `UPDATE "Workspace" SET ${updates.join(", ")} WHERE "id" = $${paramIdx}`,
-    ...values,
-    membership[0].workspaceId
-  );
+  await prisma.workspace.update({
+    where: { id: workspace.id },
+    data,
+  });
 
   return NextResponse.json({ success: true });
 }
