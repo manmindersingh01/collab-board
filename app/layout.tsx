@@ -8,6 +8,8 @@ import {
 } from "@clerk/nextjs";
 import { Geist, Geist_Mono } from "next/font/google";
 import Link from "next/link";
+import NotificationBell from "./components/notification-bell";
+import CommandPalette from "./components/command-palette";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -83,11 +85,13 @@ export default function RootLayout({
                     </svg>
                     My Tasks
                   </Link>
+                  <NotificationBell />
                   <UserButton />
                 </Show>
               </div>
             </div>
           </header>
+          <CommandPalette />
           <main>{children}</main>
         </ClerkProvider>
       </body>

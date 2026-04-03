@@ -5,6 +5,13 @@ import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import CardDetail from "./card-detail";
 import BoardMembersModal from "./board-members";
+import { useBoardEvents } from "./use-board-events";
+import { useKeyboardShortcuts } from "./use-keyboard-shortcuts";
+import ShortcutsModal from "./shortcuts-modal";
+import BoardFilters from "./board-filters";
+import ViewSwitcher, { type ViewMode } from "./views/view-switcher";
+import TableView from "./views/table-view";
+import CalendarView from "./views/calendar-view";
 import {
   DndContext,
   DragOverlay,
@@ -628,8 +635,11 @@ export default function BoardView({
   const [showMembers, setShowMembers] = useState(false);
   const [boardMembers, setBoardMembers] = useState<MemberData[]>(board.members);
 
+  const [showFilters, setShowFilters] = useState(false);
+  const [showShortcuts, setShowShortcuts] = useState(false);
+  const activeView = (searchParams.get("view") as ViewMode) || "board";
+
   // Explicit sensor: pointer must move 8px before a drag starts.
-  // Clicks (< 8px) pass through to onClick handlers normally.
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
   );
@@ -637,10 +647,59 @@ export default function BoardView({
   // Snapshot for rollback on API failure
   const snapshotRef = useRef<ListData[] | null>(null);
 
-  // Sync when server re-fetches (e.g. after AddCard's router.refresh)
+  // Sync when server re-fetches
   useEffect(() => {
     setLists(board.list);
   }, [board.list]);
+
+  // ─ Real-time board events (SSE via Redis pub/sub) ─────
+  useBoardEvents(board.id, currentUserId, useCallback((event) => {
+    const p = event.payload as Record<string, any>;
+    if (event.type === "card.created" && p?.card) {
+      setLists((prev) =>
+        prev.map((l) => l.id === p.listId ? { ...l, card: [...l.card, p.card] } : l),
+      );
+    } else if (event.type === "card.moved" && p?.cardId) {
+      setLists((prev) => {
+        let movedCard: CardData | undefined;
+        const without = prev.map((l) => {
+          const c = l.card.find((c) => c.id === p.cardId);
+          if (c) movedCard = { ...c, position: p.position as number };
+          return { ...l, card: l.card.filter((c) => c.id !== p.cardId) };
+        });
+        if (!movedCard) return prev;
+        return without.map((l) =>
+          l.id === p.toListId ? { ...l, card: [...l.card, movedCard!].sort((a, b) => a.position - b.position) } : l,
+        );
+      });
+    } else if (event.type === "card.updated" && p?.cardId) {
+      setLists((prev) =>
+        prev.map((l) => ({
+          ...l,
+          card: l.card.map((c) => c.id === p.cardId ? { ...c, ...p.updates } : c),
+        })),
+      );
+    } else if (event.type === "list.created" && p?.list) {
+      setLists((prev) => [...prev, p.list as ListData]);
+    }
+  }, []));
+
+  // ─ Keyboard shortcuts ─────────────────────────────────
+  useKeyboardShortcuts({
+    onAddCard: () => {
+      const firstInput = document.querySelector<HTMLButtonElement>("[data-add-card]");
+      firstInput?.click();
+    },
+    onToggleFilter: () => setShowFilters((p) => !p),
+    onFocusSearch: () => setShowFilters(true),
+    onEscape: () => {
+      if (selectedCardId) setSelectedCardId(null);
+      else if (showMembers) setShowMembers(false);
+      else if (showFilters) setShowFilters(false);
+      else if (showShortcuts) setShowShortcuts(false);
+    },
+    onShowShortcuts: () => setShowShortcuts((p) => !p),
+  });
 
   // ─ Auto-scroll to card from URL param (?card=xxx) ─────
   useEffect(() => {
@@ -954,6 +1013,16 @@ export default function BoardView({
         </div>
 
         <div className="flex items-center gap-3 flex-shrink-0">
+          <ViewSwitcher />
+          <button
+            onClick={() => setShowFilters((p) => !p)}
+            className={`neo-badge text-xs cursor-pointer hover:shadow-neo-sm transition-shadow ${showFilters ? "bg-neo-blue/20" : ""}`}
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+              <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
+            </svg>
+            Filter
+          </button>
           <button
             onClick={() => setShowMembers(true)}
             className="neo-badge bg-neo-yellow/30 text-xs cursor-pointer hover:shadow-neo-sm transition-shadow"
@@ -967,54 +1036,83 @@ export default function BoardView({
         </div>
       </div>
 
-      {/* Lists area — DnD context wraps everything */}
-      <DndContext
-        sensors={sensors}
-        collisionDetection={pointerWithin}
-        onDragStart={handleDragStart}
-        onDragOver={handleDragOver}
-        onDragEnd={handleDragEnd}
-      >
-        <div className="flex-1 overflow-x-auto overflow-y-hidden">
-          <div className="flex gap-5 p-6 h-full items-start min-w-min">
-            {lists.map((list, i) => (
-              <ListColumn
-                key={list.id}
-                list={list}
-                index={i}
-                canEdit={canEdit}
-                isDoneList={list.id === doneListId}
-                currentUserId={currentUserId}
-                allLists={lists}
-                onCardAdded={handleCardAdded}
-                onCardClick={(id) => setSelectedCardId(id)}
-                onMarkDone={handleMarkDone}
-              />
-            ))}
+      {/* Filter bar */}
+      {showFilters && (
+        <BoardFilters
+          cards={lists.flatMap((l) => l.card)}
+          members={boardMembers}
+          onFilterChange={() => {}}
+        />
+      )}
 
-            {/* Add list column (owner only) */}
-            {userRole === "owner" && <AddListColumn boardId={board.id} onListAdded={handleListAdded} />}
-
-            {lists.length === 0 && userRole !== "owner" && (
-              <div className="flex items-center justify-center w-full py-20">
-                <div className="text-center">
-                  <p className="font-bold text-lg mb-1">No lists yet</p>
-                  <p className="text-neo-muted text-sm">This board has no lists</p>
-                </div>
-              </div>
-            )}
-          </div>
+      {/* View content */}
+      {activeView === "table" ? (
+        <div className="flex-1 overflow-auto p-6">
+          <TableView
+            lists={lists}
+            members={boardMembers}
+            canEdit={canEdit}
+            onCardClick={(id) => setSelectedCardId(id)}
+            onCardUpdated={handleCardUpdated}
+          />
         </div>
+      ) : activeView === "calendar" ? (
+        <div className="flex-1 overflow-auto p-6">
+          <CalendarView
+            lists={lists}
+            onCardClick={(id) => setSelectedCardId(id)}
+          />
+        </div>
+      ) : (
+        /* Kanban board — DnD context wraps lists */
+        <DndContext
+          sensors={sensors}
+          collisionDetection={pointerWithin}
+          onDragStart={handleDragStart}
+          onDragOver={handleDragOver}
+          onDragEnd={handleDragEnd}
+        >
+          <div className="flex-1 overflow-x-auto overflow-y-hidden">
+            <div className="flex gap-5 p-6 h-full items-start min-w-min">
+              {lists.map((list, i) => (
+                <ListColumn
+                  key={list.id}
+                  list={list}
+                  index={i}
+                  canEdit={canEdit}
+                  isDoneList={list.id === doneListId}
+                  currentUserId={currentUserId}
+                  allLists={lists}
+                  onCardAdded={handleCardAdded}
+                  onCardClick={(id) => setSelectedCardId(id)}
+                  onMarkDone={handleMarkDone}
+                />
+              ))}
 
-        {/* Drag overlay — the ghost card that follows the cursor */}
-        <DragOverlay dropAnimation={null}>
-          {activeCard ? (
-            <div className="neo-card-sm p-3 w-[276px] rotate-[2deg] opacity-90 shadow-neo">
-              <CardItemContent card={activeCard} />
+              {/* Add list column (owner only) */}
+              {userRole === "owner" && <AddListColumn boardId={board.id} onListAdded={handleListAdded} />}
+
+              {lists.length === 0 && userRole !== "owner" && (
+                <div className="flex items-center justify-center w-full py-20">
+                  <div className="text-center">
+                    <p className="font-bold text-lg mb-1">No lists yet</p>
+                    <p className="text-neo-muted text-sm">This board has no lists</p>
+                  </div>
+                </div>
+              )}
             </div>
-          ) : null}
-        </DragOverlay>
-      </DndContext>
+          </div>
+
+          {/* Drag overlay */}
+          <DragOverlay dropAnimation={null}>
+            {activeCard ? (
+              <div className="neo-card-sm p-3 w-[276px] rotate-[2deg] opacity-90 shadow-neo">
+                <CardItemContent card={activeCard} />
+              </div>
+            ) : null}
+          </DragOverlay>
+        </DndContext>
+      )}
 
       {/* Error toast */}
       {toast && <Toast message={toast} onDismiss={() => setToast(null)} />}
@@ -1033,6 +1131,9 @@ export default function BoardView({
           onMarkDone={handleMarkDone}
         />
       )}
+
+      {/* Shortcuts cheat sheet */}
+      {showShortcuts && <ShortcutsModal onClose={() => setShowShortcuts(false)} />}
 
       {/* Board members modal */}
       {showMembers && (
