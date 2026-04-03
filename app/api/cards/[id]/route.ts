@@ -1,6 +1,7 @@
 import prisma from "@/lib/prisma";
 import { getDbUser } from "@/lib/user";
 import { logActivity } from "@/lib/activity";
+import { emitCardUpdated } from "@/lib/realtime-emitters";
 import { NextResponse } from "next/server";
 
 // ── GET /api/cards/[id] — full card with comments ───────
@@ -189,6 +190,9 @@ export async function PATCH(
     entityId: cardId,
     metadata: { cardTitle: updated.title, changes },
   });
+
+  // Real-time broadcast (fire-and-forget)
+  emitCardUpdated(card.list.boardId, user.id, cardId, changes);
 
   return NextResponse.json(updated);
 }

@@ -1,6 +1,7 @@
 import prisma from "@/lib/prisma";
 import { getDbUser } from "@/lib/user";
 import { logActivity } from "@/lib/activity";
+import { emitCardCreated } from "@/lib/realtime-emitters";
 import { NextResponse } from "next/server";
 
 export async function POST(req: Request) {
@@ -79,6 +80,19 @@ export async function POST(req: Request) {
     entityType: "card",
     entityId: card.id,
     metadata: { title: title.trim(), listTitle: list.title },
+  });
+
+  // Real-time broadcast (fire-and-forget)
+  emitCardCreated(list.board.id, user.id, {
+    id: card.id,
+    title: card.title,
+    listId: listId,
+    position: card.position,
+    priority: card.priority,
+    labels: card.labels,
+    description: card.description,
+    dueDate: card.dueDate?.toISOString() ?? null,
+    assignee: card.assignee,
   });
 
   return NextResponse.json(card, { status: 201 });

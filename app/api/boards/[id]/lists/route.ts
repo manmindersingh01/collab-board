@@ -1,6 +1,7 @@
 import prisma from "@/lib/prisma";
 import { getDbUser } from "@/lib/user";
 import { logActivity } from "@/lib/activity";
+import { emitListCreated } from "@/lib/realtime-emitters";
 import { NextResponse } from "next/server";
 
 export async function POST(
@@ -59,6 +60,13 @@ export async function POST(
     entityType: "list",
     entityId: list.id,
     metadata: { title: list.title },
+  });
+
+  // Real-time broadcast (fire-and-forget)
+  emitListCreated(boardId, user.id, {
+    id: list.id,
+    title: list.title,
+    position: list.position,
   });
 
   return NextResponse.json(list, { status: 201 });

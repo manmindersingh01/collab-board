@@ -1,6 +1,7 @@
 import prisma from "@/lib/prisma";
 import { getDbUser } from "@/lib/user";
 import { logActivity } from "@/lib/activity";
+import { emitCardMoved } from "@/lib/realtime-emitters";
 import { NextResponse } from "next/server";
 
 export async function PATCH(
@@ -94,6 +95,9 @@ export async function PATCH(
       },
     });
   }
+
+  // Real-time broadcast (fire-and-forget)
+  emitCardMoved(card.list.board.id, user.id, cardId, card.listId, listId, position);
 
   return NextResponse.json({ success: true }, { status: 200 });
 }

@@ -1,6 +1,7 @@
 import prisma from "@/lib/prisma";
 import { getDbUser } from "@/lib/user";
 import { logActivity } from "@/lib/activity";
+import { emitCardMoved } from "@/lib/realtime-emitters";
 import { NextResponse } from "next/server";
 
 export async function POST(
@@ -114,6 +115,9 @@ export async function POST(
       toList: targetList.title,
     },
   });
+
+  // Real-time broadcast (fire-and-forget)
+  emitCardMoved(card.list.boardId, user.id, cardId, card.listId, targetList.id, newPosition);
 
   return NextResponse.json({
     success: true,
