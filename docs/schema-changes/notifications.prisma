@@ -1,0 +1,21 @@
+// Schema additions for the feat/notifications branch
+// These models need to be added to prisma/schema.prisma before running migrations.
+
+model Notification {
+  id        String   @id @default(cuid())
+  type      String   @db.VarChar(50)  // "card.assigned", "comment.added", "due.approaching", "due.overdue", "role.changed"
+  title     String
+  message   String
+  link      String?                   // e.g. "/board/abc?card=xyz"
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  userId    String                    // recipient
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead])
+  @@index([userId, createdAt])
+}
+
+// Also requires adding to the User model:
+// notifications Notification[]
