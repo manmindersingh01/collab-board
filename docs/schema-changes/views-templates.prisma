@@ -1,0 +1,25 @@
+// Schema additions for feat/views-templates branch
+// These additions are needed for the Card Templates feature.
+//
+// The table is created at runtime via raw SQL in the API route
+// (app/api/boards/[id]/templates/route.ts) using CREATE TABLE IF NOT EXISTS,
+// so no migration is needed during development.
+//
+// When merging to main, add this model to prisma/schema.prisma and run:
+//   pnpm prisma migrate dev --name add-card-templates
+
+model CardTemplate {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  priority    Priority @default(NONE)
+  labels      String[] @default([])
+  boardId     String
+  board       Board    @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+
+  @@index([boardId])
+}
+
+// Also add to the Board model:
+//   templates CardTemplate[]
