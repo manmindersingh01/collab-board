@@ -35,7 +35,11 @@ export async function publishBoardEvent(
   event: BoardEvent,
 ): Promise<void> {
   try {
-    await redis.publish(channelName(boardId), JSON.stringify(event));
+    const channel = channelName(boardId);
+    const listeners = await redis.publish(channel, JSON.stringify(event));
+    if (process.env.NODE_ENV !== "production") {
+      console.log(`[realtime] Published ${event.type} to ${channel} (${listeners} listeners)`);
+    }
   } catch (e) {
     console.error("[realtime] Failed to publish event:", e);
   }

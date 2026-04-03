@@ -4,10 +4,10 @@ const globalForRedis = global as unknown as {
   redis: Redis | undefined;
 };
 
-function createRedisClient() {
+function createRedisClient(lazy = false) {
   return new Redis(process.env.REDIS_URL ?? "redis://localhost:6379", {
     maxRetriesPerRequest: 3,
-    lazyConnect: true,
+    lazyConnect: lazy,
   });
 }
 

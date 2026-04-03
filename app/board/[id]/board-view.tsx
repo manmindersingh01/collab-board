@@ -655,9 +655,16 @@ export default function BoardView({
   // ─ Real-time board events (SSE via Redis pub/sub) ─────
   useBoardEvents(board.id, currentUserId, useCallback((event) => {
     const p = event.payload as Record<string, any>;
+
     if (event.type === "card.created" && p?.card) {
+      const card = p.card as CardData & { listId?: string };
+      const targetListId = card.listId ?? p.listId;
       setLists((prev) =>
-        prev.map((l) => l.id === p.listId ? { ...l, card: [...l.card, p.card] } : l),
+        prev.map((l) =>
+          l.id === targetListId
+            ? { ...l, card: [...l.card.filter((c) => c.id !== card.id), card].sort((a, b) => a.position - b.position) }
+            : l,
+        ),
       );
     } else if (event.type === "card.moved" && p?.cardId) {
       setLists((prev) => {
@@ -669,18 +676,27 @@ export default function BoardView({
         });
         if (!movedCard) return prev;
         return without.map((l) =>
-          l.id === p.toListId ? { ...l, card: [...l.card, movedCard!].sort((a, b) => a.position - b.position) } : l,
+          l.id === p.toListId
+            ? { ...l, card: [...l.card, movedCard!].sort((a, b) => a.position - b.position) }
+            : l,
         );
       });
     } else if (event.type === "card.updated" && p?.cardId) {
       setLists((prev) =>
         prev.map((l) => ({
           ...l,
-          card: l.card.map((c) => c.id === p.cardId ? { ...c, ...p.updates } : c),
+          card: l.card.map((c) =>
+            c.id === p.cardId ? { ...c, ...p.updates } : c,
+          ),
         })),
       );
     } else if (event.type === "list.created" && p?.list) {
-      setLists((prev) => [...prev, p.list as ListData]);
+      const list = p.list as ListData;
+      setLists((prev) =>
+        prev.some((l) => l.id === list.id)
+          ? prev
+          : [...prev, { ...list, card: list.card ?? [] }],
+      );
     }
   }, []));
 
